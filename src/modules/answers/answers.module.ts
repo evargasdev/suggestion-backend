@@ -9,7 +9,10 @@ import { AnswerProfilesService } from '../answer-profiles/answer-profiles.servic
 import { AnswerProfilesModule } from '../answer-profiles/answer-profiles.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Answer, AnswerProfile]), AnswerProfilesModule],
+  imports: [
+    TypeOrmModule.forFeature([Answer, AnswerProfile]),
+    AnswerProfilesModule,
+  ],
   controllers: [AnswersController],
   providers: [AnswersService, AnswerProfilesService],
   exports: [AnswersService, TypeOrmModule],

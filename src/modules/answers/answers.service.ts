@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -8,6 +8,7 @@ import { Answer } from './entities/answer.entity';
 import { CreateAnswerDto } from './dto/create-answer.dto';
 import { UpdateAnswerDto } from './dto/update-answer.dto';
 import { AnswerProfilesService } from '../answer-profiles/answer-profiles.service';
+import { throwNotFound } from '../../common/throw-error';
 
 @Injectable()
 export class AnswersService {
@@ -37,23 +38,23 @@ export class AnswersService {
   async findAll(
     pagination: PaginationDto,
   ): Promise<PaginationResponseDto<Answer>> {
-    const { offset = 0, limit = 10, search } = pagination;
-    const qb = this.repository
-      .createQueryBuilder('answer')
-      .leftJoinAndSelect('answer.answerProfile', 'profile')
-      .orderBy('answer.sortOrder', 'ASC')
-      .addOrderBy('answer.createdAt', 'ASC')
-      .skip(offset)
-      .take(limit);
+    const { offset = 0, limit = 10 } = pagination;
 
-    if (search && search.trim().length > 0) {
-      qb.andWhere('answer.label ILIKE :search', {
-        search: `%${search.trim()}%`,
-      });
+    try {
+      const queryBuilder = this.repository
+        .createQueryBuilder('answer')
+        .leftJoinAndSelect('answer.answerProfile', 'profile');
+
+      const [data, total] = await queryBuilder
+        .orderBy('answer.sortOrder', 'ASC')
+        .skip(offset)
+        .take(limit)
+        .getManyAndCount();
+
+      return { data, total, offset, limit };
+    } catch (error) {
+      return throwNotFound('Failed to fetch paginated users');
     }
-
-    const [data, total] = await qb.getManyAndCount();
-    return { data, total, offset, limit };
   }
 
   async findOne(id: string): Promise<Answer> {
@@ -68,25 +69,19 @@ export class AnswersService {
   }
 
   async update(id: string, dto: UpdateAnswerDto): Promise<Answer> {
-    const entity = await this.findOne(id);
-    if (dto.label !== undefined) entity.label = dto.label;
-    if (dto.value !== undefined) entity.value = dto.value;
-    if (dto.sortOrder !== undefined) entity.sortOrder = dto.sortOrder;
-    if (dto.isActive !== undefined) entity.isActive = dto.isActive;
-    if (dto.answerProfileId !== undefined) {
-      const profile = await this.profileService.findOne(dto.answerProfileId);
-      if (!profile) {
-        throw new NotFoundException(
-          `AnswerProfile ${dto.answerProfileId} not found`,
-        );
-      }
-      entity.answerProfile = profile;
+    const entity = await this.repository.preload({ id, ...dto });
+
+    if (!entity) {
+      throw new NotFoundException(
+        `AnswerProfile ${dto.answerProfileId} not found`,
+      );
     }
+
     return this.repository.save(entity);
   }
 
   async remove(id: string): Promise<void> {
-    const result = await this.repository.softDelete({ id });
+    const result = await this.repository.softDelete(id);
     if (!result.affected) {
       throw new NotFoundException(`Answer ${id} not found`);
     }

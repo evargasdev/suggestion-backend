@@ -64,12 +64,6 @@ export class AnswersController {
     type: Number,
     description: 'Cantidad máxima (1-100)',
   })
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    type: String,
-    description: 'ILIKE sobre el texto',
-  })
   @ApiOkResponse({
     schema: {
       allOf: [

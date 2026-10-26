@@ -31,12 +31,13 @@ async function bootstrap() {
         },
         'bearer',
       )
-      .addTag('Dimensions', 'Gestión de dimensiones')
-      .addTag('Questions', 'Gestión de preguntas')
-      .addTag('Question Answers', 'Gestión de respuestas a preguntas')
-      .addTag('Answers', 'Gestión de respuestas')
       .addTag('Answer Profiles', 'Gestión de perfiles de respuesta')
+      .addTag('Answers', 'Gestión de respuestas')
+      .addTag('Dimensions', 'Gestión de dimensiones')
       .addTag('Evaluations', 'Gestión de evaluaciones')
+      .addTag('Question Answers', 'Gestión de respuestas a preguntas')
+      .addTag('Questions', 'Gestión de preguntas')
+      .addTag('Results')
       .build();
     const document = SwaggerModule.createDocument(app, config, {
       autoTagControllers: true,

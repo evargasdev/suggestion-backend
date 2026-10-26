@@ -6,14 +6,14 @@ import {
   Param,
   Patch,
   Post,
-  Query
+  Query,
 } from '@nestjs/common';
 import {
   ApiBody,
   ApiOperation,
   ApiParam,
   ApiQuery,
-  ApiTags
+  ApiTags,
 } from '@nestjs/swagger';
 
 import { PaginationDto } from '../../common/shared/dtos/pagination.dto';
