@@ -9,6 +9,9 @@ export class Question extends Base {
   @Column({ name: 'label', type: 'varchar', nullable: false })
   label: string;
 
+  @Column({ name: 'helper_text', type: 'text', nullable: false})
+  helperText: string;
+
   @Column({ name: 'sort_order', type: 'int', nullable: false, default: 0 })
   sortOrder: number;
 

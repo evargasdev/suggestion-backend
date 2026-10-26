@@ -1,15 +1,17 @@
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+
+const MAX_OFFSET = 1_000_000;
+const MAX_SEARCH_LENGTH = 255;
 
 export class PaginationDto {
-  /** Posición inicial de los resultados */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(MAX_OFFSET)
   offset?: number = 0;
 
-  /** Cantidad máxima de resultados a devolver (máx. 100) */
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -17,7 +19,11 @@ export class PaginationDto {
   @Max(100)
   limit?: number = 10;
 
-  /** Texto de búsqueda libre */
   @IsOptional()
+  @IsString()
+  @MaxLength(MAX_SEARCH_LENGTH)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   search?: string;
 }

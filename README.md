@@ -1,124 +1,169 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Suggestion API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API anónima para encuestas de sugerencias, construida con NestJS 12 + TypeORM 1.1 + PostgreSQL.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Estado actual
 
-## Description
+- CRUD administrativo (Dimensions, Questions, AnswerProfiles, Answers).
+- Endpoint público `GET /api/v1/evaluations/survey` con el cuestionario activo.
+- Envío anónimo (`POST /api/v1/evaluations`) con validación transaccional.
+- Lectura de resultados `GET /api/v1/evaluations/:id/results`.
+- Documentación Swagger en `/docs`.
+- **Sin autenticación** (decisión documentada; ver `migrations/README.md`).
+- **Sin clasificación** de puntajes (no inventada; ver entidad `EvaluationResult`).
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+> ⚠️ **El CRUD catálogo está abierto**. Hasta que se añada auth (JWT,
+> API key, etc.) cualquiera puede crear/editar/borrar el catálogo de
+> dimensiones, preguntas, perfiles y opciones. **No publiques esta API
+> sin proteger antes esos CRUD**.
 
-## Project setup
+## Stack
+
+- NestJS `^12.0.1`
+- @nestjs/typeorm `^12.0.2`
+- typeorm `^1.1.1`
+- @nestjs/swagger `12.0.2`
+- class-validator / class-transformer
+- PostgreSQL (cualquier versión >= 12)
+
+## Variables de entorno
+
+Ver [`.env.example`](./.env.example). Resumen de las claves soportadas:
+
+| Variable | Default | Descripción |
+| --- | --- | --- |
+| `PORT` | `3000` | Puerto HTTP |
+| `GLOBAL_PREFIX` | `api/v1` | Prefijo global de la API |
+| `NODE_ENV` | `development` | Entorno (afecta a Swagger y `DB_SYNCHRONIZE`) |
+| `ENABLE_SWAGGER` | `true` fuera de `production`; `false` en `production` | Monta Swagger UI en `/docs`. Acepta solo `true`/`false` literales. |
+| `DATABASE_URL` | – | URL completa de Postgres (`postgres://user:pass@host:5432/db`) |
+| `DB_HOST` | – | Host Postgres (alternativa a `DATABASE_URL`) |
+| `DB_PORT` | `5432` | Puerto Postgres |
+| `DB_USERNAME` | – | Usuario Postgres |
+| `DB_PASSWORD` | – | Password Postgres |
+| `DB_NAME` | – | Base de datos |
+| `DB_SCHEMA` | `public` | Esquema |
+| `DB_SYNCHRONIZE` | `false` | Sincronizar schema desde entidades (PELIGROSO en producción). Forzado a `false` en `NODE_ENV=production`. |
+| `DB_RUN_MIGRATIONS` | `false` | **Marcado como no implementado**: ver "Migraciones" más abajo. No se ejecuta nada al activar este flag. |
+
+> **No existe** la variable `DB_AUTO_CONNECT` que mencionaban versiones
+> previas. La conexión a Postgres es obligatoria al iniciar la API.
+
+## Endpoints
+
+Todos los endpoints cuelgan del prefijo `/api/v1` (configurable).
+
+#### Salud
+- `GET /api/v1` — estado del servicio y enlace a Swagger.
+
+#### CRUD administrativo (NO protegido)
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `GET`    | `/dimensions`        | Lista paginada (`offset`, `limit`, `search`) |
+| `POST`   | `/dimensions`        | Crea dimensión |
+| `GET`    | `/dimensions/:id`    | Obtiene por id |
+| `PATCH`  | `/dimensions/:id`    | Actualiza |
+| `DELETE` | `/dimensions/:id`    | Borrado lógico |
+
+Mismo patrón para `/answer-profiles`, `/answers`, `/questions`. Las preguntas
+aceptan `dimensionId` opcional como filtro.
+
+#### Flujo público
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `GET`  | `/evaluations/survey` | Catálogo público de la encuesta activa (sin `value` de las opciones) |
+| `POST` | `/evaluations`        | Envío anónimo. Body: `{ "answers": [{ "questionId", "answerId" }] }` |
+| `GET`  | `/evaluations/:id/results` | Puntaje bruto por dimensión (incluye dimensiones soft-deleted para preservar historial); `classification` siempre `null` |
+
+## Validaciones de `POST /evaluations`
+
+- IDs en formato UUID v4.
+- Sin `questionId` duplicados en el array.
+- Pregunta debe existir y estar activa (`isActive=true`).
+- Opción debe existir y estar activa.
+- La opción debe pertenecer al `answerProfile` de la pregunta.
+- Todas las preguntas activas obligatorias (`isRequired=true`) cuya
+  dimensión esté activa y NO soft-deleted deben tener respuesta.
+
+Persistencia transaccional:
+
+- 1 `Evaluation`
+- N `QuestionAnswer` (uno por respuesta)
+- 1 `EvaluationResult` por dimensión con respuestas
+
+## Instalación y arranque
 
 ```bash
-$ pnpm install
+pnpm install
+cp .env.example .env       # edita los valores
+
+# Dev
+pnpm run start:dev
+
+# Build + producción
+pnpm run build
+node dist/main.js
 ```
 
-## Compile and run the project
+## Tests
 
 ```bash
-# development
-$ pnpm run start
+# Unit tests (mocks de DataSource, sin Postgres)
+pnpm test
 
-# watch mode
-$ pnpm run start:dev
+# E2E smoke test (sin DB; usa AppController standalone)
+pnpm run test:e2e
 
-# production mode
-$ pnpm run start:prod
+# Linter
+pnpm run lint
 ```
 
-## Run tests
+Los tests **bypasean** el `AppModule` a propósito para no requerir una
+instancia real de Postgres. Si necesitas testear contra una DB real,
+configura `DATABASE_URL` y levanta el servidor manualmente.
+
+## Migraciones
+
+Esta sección describe el estado **real** del soporte de migraciones,
+no lo que la doc antigua afirmaba.
+
+- Los archivos en `migrations/*.sql` son scripts sueltos pensados para
+  aplicarse con `psql`. **No** están registrados en el `DataSource`
+  de TypeORM ni son auto-descubiertos por `@nestjs/typeorm`.
+- `DB_RUN_MIGRATIONS=true` **no ejecuta** esos SQL automáticamente
+  (no hay `migrationsRun` apuntando a `migrations/*.sql` y no hay
+  archivos `migrations/*.ts`). Está documentado en el código como
+  "no implementado" para no crear un falso soporte.
+
+Aplicar manualmente con:
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+psql "$DATABASE_URL" -f migrations/001-make-classification-nullable.sql
+psql "$DATABASE_URL" -f migrations/002-add-answer-is-active.sql
 ```
 
-## Deployment
+Orden: ascendente. Cada uno es idempotente.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### Schema base
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+No existe un script "000-base-schema.sql" que cree las tablas desde
+cero. Las opciones son:
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+1. **Habilitar `synchronize:true` SOLO en una DB de desarrollo**
+   (`NODE_ENV=development`): TypeORM generará todas las tablas a
+   partir de las entidades. PELIGROSO si se ejecuta contra una DB con
+   datos: puede borrar columnas.
+2. **Crear un `migrations/000-base-schema.sql`** que traduzca el
+   modelo entidad a SQL y aplicarlo con `psql` (pendiente; ver
+   `migrations/README.md`).
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Pendientes / decisiones
 
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project:
-
-```bash
-$ pnpm install @nestjs/observe
-```
-
-Then follow the [setup guide](https://docs.nestjs.com/observability/overview) - it takes a single import and an app key.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- **Auth**: no incluida. **CRÍTICO**: el CRUD catálogo está abierto,
+  no publiques la API sin proteger antes esos endpoints.
+- **Migraciones TypeORM**: no migradas a `migrations/*.ts`. Solo SQL.
+- **Clasificación**: dominio no definido. La columna existe pero queda `NULL`.
+- **`Evaluation.workplace`**: legacy, sin uso. Pendiente eliminar o poblar.
+- **`synchronize:true`**: desactivado por defecto. Habilitar solo en desarrollo.

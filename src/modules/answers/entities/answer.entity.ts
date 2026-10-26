@@ -13,8 +13,10 @@ export class Answer extends Base {
 
   @Column({ name: 'sort_order', type: 'int', nullable: false, default: 0 })
   sortOrder: number;
+  
+  @Column({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean;
 
-  // Configuración correcta del ManyToOne
   @ManyToOne(() => AnswerProfile, (answerProfile) => answerProfile.answers)
   @JoinColumn({ name: 'answer_profile_id' })
   answerProfile: AnswerProfile;

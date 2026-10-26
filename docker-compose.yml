@@ -1,0 +1,37 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '4000:3000'
+    volumes:
+      - .:/usr/app
+      - /usr/app/node_modules
+    environment:
+      NODE_ENV: development
+      CI: true
+      CHOKIDAR_USEPOLLING: 'true'
+      WATCHPACK_POLLING: 'true'
+      PG_HOST: postgres_db
+      PG_PORT: ${PG_PORT}
+      PG_USERNAME: ${PG_USERNAME}
+      PG_PASSWORD: ${PG_PASSWORD}
+      PG_DATABASE: ${PG_DATABASE}
+    depends_on:
+      - postgres_db
+    command: pnpm run start:dev
+
+  postgres_db:
+    image: postgres:18.4-alpine3.24
+    environment:
+      POSTGRES_USER: ${PG_USERNAME}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DATABASE}
+    ports:
+      - '5432:5432'
+    volumes:
+      - suggestion-db:/var/lib/postgres/18/docker
+
+volumes:
+  suggestion-db:
