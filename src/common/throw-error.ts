@@ -40,5 +40,7 @@ export const throwConflict = (message: string): never =>
 export const throwUnauthorized = (message: string): never =>
   throwError(HttpStatus.UNAUTHORIZED, message);
 
-export const throwBadRequest = (message: string): never =>
-  throwError(HttpStatus.BAD_REQUEST, message);
+export const throwBadRequest = (
+  message: string,
+  details?: unknown,
+): never => throwError(HttpStatus.BAD_REQUEST, message, details);

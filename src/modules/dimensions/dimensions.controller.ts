@@ -25,12 +25,12 @@ import {
   getSchemaPath,
 } from '@nestjs/swagger';
 
-import { PaginationDto } from '../../common/shared/dtos/pagination.dto';
 import { PaginationResponseDto } from '../../common/shared/dtos/pagination-response.dto';
-import { CreateDimensionDto } from './dto/create-dimension.dto';
-import { UpdateDimensionDto } from './dto/update-dimension.dto';
-import { DimensionResponseDto } from './dto/dimension-response.dto';
+import { PaginationDto } from '../../common/shared/dtos/pagination.dto';
 import { DimensionsService } from './dimensions.service';
+import { CreateDimensionDto } from './dto/create-dimension.dto';
+import { DimensionResponseDto } from './dto/dimension-response.dto';
+import { UpdateDimensionDto } from './dto/update-dimension.dto';
 
 @ApiTags('Dimensions')
 @ApiExtraModels(PaginationResponseDto, DimensionResponseDto)
@@ -42,10 +42,9 @@ export class DimensionsController {
   @ApiOperation({ summary: 'Crear dimensión' })
   @ApiCreatedResponse({ type: DimensionResponseDto })
   @ApiBadRequestResponse({ description: 'Datos inválidos' })
-  create(@Body() dto: CreateDimensionDto): Promise<DimensionResponseDto> {
-    return this.service
-      .create(dto)
-      .then((entity) => DimensionResponseDto.fromEntity(entity));
+  async create(@Body() dto: CreateDimensionDto): Promise<DimensionResponseDto> {
+    const entity = await this.service.create(dto);
+    return DimensionResponseDto.fromEntity(entity);
   }
 
   @Get()
@@ -83,15 +82,16 @@ export class DimensionsController {
       ],
     },
   })
-  findAll(
+  async findAll(
     @Query() pagination: PaginationDto,
   ): Promise<PaginationResponseDto<DimensionResponseDto>> {
-    return this.service.findAll(pagination).then((r) => ({
-      data: r.data.map((entity) => DimensionResponseDto.fromEntity(entity)),
-      total: r.total,
-      offset: r.offset,
-      limit: r.limit,
-    }));
+    const result = await this.service.findAll(pagination);
+    return {
+      ...result,
+      data: result.data.map((entity) =>
+        DimensionResponseDto.fromEntity(entity),
+      ),
+    };
   }
 
   @Get(':id')
@@ -99,12 +99,11 @@ export class DimensionsController {
   @ApiOkResponse({ type: DimensionResponseDto })
   @ApiNotFoundResponse({ description: 'Dimensión no encontrada' })
   @ApiParam({ name: 'id', format: 'uuid' })
-  findOne(
+  async findOne(
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<DimensionResponseDto> {
-    return this.service
-      .findOne(id)
-      .then((entity) => DimensionResponseDto.fromEntity(entity));
+    const entity = await this.service.findOne(id);
+    return DimensionResponseDto.fromEntity(entity);
   }
 
   @Patch(':id')
@@ -112,13 +111,12 @@ export class DimensionsController {
   @ApiOkResponse({ type: DimensionResponseDto })
   @ApiNotFoundResponse({ description: 'Dimensión no encontrada' })
   @ApiBadRequestResponse({ description: 'Datos inválidos' })
-  update(
+  async update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateDimensionDto,
   ): Promise<DimensionResponseDto> {
-    return this.service
-      .update(id, dto)
-      .then((entity) => DimensionResponseDto.fromEntity(entity));
+    const entity = await this.service.update(id, dto);
+    return DimensionResponseDto.fromEntity(entity);
   }
 
   @Delete(':id')

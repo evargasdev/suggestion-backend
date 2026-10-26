@@ -44,10 +44,9 @@ export class AnswersController {
     description: 'Datos inválidos o perfil inexistente',
   })
   @ApiNotFoundResponse({ description: 'Perfil de respuestas no encontrado' })
-  create(@Body() dto: CreateAnswerDto): Promise<AnswerResponseDto> {
-    return this.service
-      .create(dto)
-      .then((entity) => AnswerResponseDto.fromEntity(entity));
+  async create(@Body() dto: CreateAnswerDto): Promise<AnswerResponseDto> {
+    const entity = await this.service.create(dto);
+    return AnswerResponseDto.fromEntity(entity);
   }
 
   @Get()
@@ -79,27 +78,25 @@ export class AnswersController {
       ],
     },
   })
-  findAll(
+  async findAll(
     @Query() pagination: PaginationDto,
   ): Promise<PaginationResponseDto<AnswerResponseDto>> {
-    return this.service.findAll(pagination).then((r) => ({
-      data: r.data.map((entity) => AnswerResponseDto.fromEntity(entity)),
-      total: r.total,
-      offset: r.offset,
-      limit: r.limit,
-    }));
+    const result = await this.service.findAll(pagination);
+    return {
+      ...result,
+      data: result.data.map((entity) => AnswerResponseDto.fromEntity(entity)),
+    };
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtener opción por id' })
   @ApiOkResponse({ type: AnswerResponseDto })
   @ApiNotFoundResponse({ description: 'Opción no encontrada' })
-  findOne(
+  async findOne(
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<AnswerResponseDto> {
-    return this.service
-      .findOne(id)
-      .then((entity) => AnswerResponseDto.fromEntity(entity));
+    const entity = await this.service.findOne(id);
+    return AnswerResponseDto.fromEntity(entity);
   }
 
   @Patch(':id')
@@ -107,13 +104,12 @@ export class AnswersController {
   @ApiOkResponse({ type: AnswerResponseDto })
   @ApiBadRequestResponse({ description: 'Datos inválidos' })
   @ApiNotFoundResponse({ description: 'Opción o perfil no encontrado' })
-  update(
+  async update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateAnswerDto,
   ): Promise<AnswerResponseDto> {
-    return this.service
-      .update(id, dto)
-      .then((entity) => AnswerResponseDto.fromEntity(entity));
+    const entity = await this.service.update(id, dto);
+    return AnswerResponseDto.fromEntity(entity);
   }
 
   @Delete(':id')

@@ -1,16 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { PaginationResponseDto } from '../../common/shared/dtos/pagination-response.dto';
-import { AnswerProfile } from '../answer-profiles/entities/answer-profile.entity';
-import { Dimension } from '../dimensions/entities/dimension.entity';
-import { Question } from './entities/question.entity';
+import { throwNotFound } from '../../common/throw-error';
+import { AnswerProfilesService } from '../answer-profiles/answer-profiles.service';
+import { DimensionsService } from '../dimensions/dimensions.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { FilterQuestionDto } from './dto/filter-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
-import { DimensionsService } from '../dimensions/dimensions.service';
-import { AnswerProfilesService } from '../answer-profiles/answer-profiles.service';
+import { Question } from './entities/question.entity';
 
 @Injectable()
 export class QuestionsService {
@@ -23,15 +22,9 @@ export class QuestionsService {
 
   async create(dto: CreateQuestionDto): Promise<Question> {
     const dimension = await this.dimensionService.findOne(dto.dimensionId);
-    if (!dimension) {
-      throw new NotFoundException(`Dimension ${dto.dimensionId} not found`);
-    }
-    const answerProfile = await this.profileService.findOne(dto.answerProfileId);
-    if (!answerProfile) {
-      throw new NotFoundException(
-        `AnswerProfile ${dto.answerProfileId} not found`,
-      );
-    }
+    const answerProfile = await this.profileService.findOne(
+      dto.answerProfileId,
+    );
     const created = this.repository.create({
       label: dto.label,
       helperText: dto.helperText,
@@ -76,25 +69,37 @@ export class QuestionsService {
       relations: { dimension: true, answerProfile: true },
     });
     if (!entity) {
-      throw new NotFoundException(`Question ${id} not found`);
+      return throwNotFound(`Question ${id} not found`);
     }
     return entity;
   }
 
   async update(id: string, dto: UpdateQuestionDto): Promise<Question> {
-    const question = await this.repository.preload({ id, ...dto });
+    const { dimensionId, answerProfileId, ...updates } = dto;
+    const question = await this.repository.preload({
+      id,
+      ...updates,
+    });
 
     if (!question) {
-      throw new NotFoundException(`Dimension ${dto.dimensionId} not found`);
+      return throwNotFound(`Question ${id} not found`);
     }
 
-    return await this.repository.save(question);
+    if (dimensionId) {
+      question.dimension = await this.dimensionService.findOne(dimensionId);
+    }
+    if (answerProfileId) {
+      question.answerProfile =
+        await this.profileService.findOne(answerProfileId);
+    }
+
+    return this.repository.save(question);
   }
 
   async remove(id: string): Promise<void> {
     const result = await this.repository.softDelete({ id });
     if (!result.affected) {
-      throw new NotFoundException(`Question ${id} not found`);
+      throwNotFound(`Question ${id} not found`);
     }
   }
 }

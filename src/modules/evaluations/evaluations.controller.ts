@@ -59,12 +59,11 @@ export class EvaluationsController {
   })
   @ApiCreatedResponse({ type: EvaluationCreatedResponseDto })
   @ApiBadRequestResponse({ description: 'Datos inválidos' })
-  submit(
+  async submit(
     @Body() dto: SubmitEvaluationDto,
   ): Promise<EvaluationCreatedResponseDto> {
-    return this.service
-      .submitEvaluation(dto)
-      .then((entity) => EvaluationCreatedResponseDto.fromEntity(entity));
+    const entity = await this.service.submitEvaluation(dto);
+    return EvaluationCreatedResponseDto.fromEntity(entity);
   }
 
   /**

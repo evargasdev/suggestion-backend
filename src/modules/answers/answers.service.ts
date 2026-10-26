@@ -1,14 +1,14 @@
-import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { PaginationDto } from '../../common/shared/dtos/pagination.dto';
 import { PaginationResponseDto } from '../../common/shared/dtos/pagination-response.dto';
-import { Answer } from './entities/answer.entity';
-import { CreateAnswerDto } from './dto/create-answer.dto';
-import { UpdateAnswerDto } from './dto/update-answer.dto';
 import { AnswerProfilesService } from '../answer-profiles/answer-profiles.service';
 import { throwNotFound } from '../../common/throw-error';
+import { CreateAnswerDto } from './dto/create-answer.dto';
+import { UpdateAnswerDto } from './dto/update-answer.dto';
+import { Answer } from './entities/answer.entity';
 
 @Injectable()
 export class AnswersService {
@@ -20,11 +20,6 @@ export class AnswersService {
 
   async create(dto: CreateAnswerDto): Promise<Answer> {
     const profile = await this.profileService.findOne(dto.answerProfileId);
-    if (!profile) {
-      throw new NotFoundException(
-        `AnswerProfile ${dto.answerProfileId} not found`,
-      );
-    }
     const created = this.repository.create({
       label: dto.label,
       value: dto.value,
@@ -40,21 +35,17 @@ export class AnswersService {
   ): Promise<PaginationResponseDto<Answer>> {
     const { offset = 0, limit = 10 } = pagination;
 
-    try {
-      const queryBuilder = this.repository
-        .createQueryBuilder('answer')
-        .leftJoinAndSelect('answer.answerProfile', 'profile');
+    const queryBuilder = this.repository
+      .createQueryBuilder('answer')
+      .leftJoinAndSelect('answer.answerProfile', 'profile');
 
-      const [data, total] = await queryBuilder
-        .orderBy('answer.sortOrder', 'ASC')
-        .skip(offset)
-        .take(limit)
-        .getManyAndCount();
+    const [data, total] = await queryBuilder
+      .orderBy('answer.sortOrder', 'ASC')
+      .skip(offset)
+      .take(limit)
+      .getManyAndCount();
 
-      return { data, total, offset, limit };
-    } catch (error) {
-      return throwNotFound('Failed to fetch paginated users');
-    }
+    return { data, total, offset, limit };
   }
 
   async findOne(id: string): Promise<Answer> {
@@ -63,18 +54,24 @@ export class AnswersService {
       relations: { answerProfile: true },
     });
     if (!entity) {
-      throw new NotFoundException(`Answer ${id} not found`);
+      return throwNotFound(`Answer ${id} not found`);
     }
     return entity;
   }
 
   async update(id: string, dto: UpdateAnswerDto): Promise<Answer> {
-    const entity = await this.repository.preload({ id, ...dto });
+    const { answerProfileId, ...updates } = dto;
+    const entity = await this.repository.preload({
+      id,
+      ...updates,
+    });
 
     if (!entity) {
-      throw new NotFoundException(
-        `AnswerProfile ${dto.answerProfileId} not found`,
-      );
+      return throwNotFound(`Answer ${id} not found`);
+    }
+
+    if (answerProfileId) {
+      entity.answerProfile = await this.profileService.findOne(answerProfileId);
     }
 
     return this.repository.save(entity);
@@ -83,7 +80,7 @@ export class AnswersService {
   async remove(id: string): Promise<void> {
     const result = await this.repository.softDelete(id);
     if (!result.affected) {
-      throw new NotFoundException(`Answer ${id} not found`);
+      throwNotFound(`Answer ${id} not found`);
     }
   }
 }
