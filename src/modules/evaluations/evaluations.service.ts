@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 
@@ -16,6 +12,7 @@ import { QuestionAnswer } from '../question-answers/entities/question-answer.ent
 import { SurveyResponseDto } from './dto/survey-response.dto';
 import { SubmitEvaluationDto } from './dto/submit-evaluation.dto';
 import { EvaluationResultsResponseDto } from './dto/evaluation-results-response.dto';
+import { throwBadRequest, throwNotFound } from '../../common/throw-error';
 
 interface ResolvedResponse {
   question: Question;
@@ -93,6 +90,7 @@ export class EvaluationsService {
         questions: (questionsByDimension.get(d.id) ?? []).map((q) => ({
           id: q.id,
           label: q.label,
+          helperText: q.helperText,
           sortOrder: q.sortOrder,
           isRequired: q.isRequired,
           answers: (answersByProfile.get(q.answerProfile?.id ?? '') ?? []).map(
@@ -135,7 +133,7 @@ export class EvaluationsService {
     const seen = new Set<string>();
     for (const a of dto.answers) {
       if (seen.has(a.questionId)) {
-        throw new BadRequestException(
+        return throwBadRequest(
           `Question ${a.questionId} appears more than once in the answers array`,
         );
       }
@@ -202,8 +200,7 @@ export class EvaluationsService {
       inactiveAnswers.length ||
       profileMismatch.length
     ) {
-      throw new BadRequestException({
-        message: 'Invalid evaluation answers',
+      return throwBadRequest('Invalid evaluation answers', {
         missingQuestions,
         inactiveQuestions,
         missingAnswers,
@@ -259,11 +256,12 @@ export class EvaluationsService {
       }
     }
     if (questionsWithInvalidDimension.length > 0) {
-      throw new BadRequestException({
-        message:
-          'Answers for questions belonging to inactive or deleted dimensions are not allowed',
-        questionsWithInvalidDimension,
-      });
+      throwBadRequest(
+        'Answers for questions belonging to inactive or deleted dimensions are not allowed',
+        {
+          questionsWithInvalidDimension,
+        },
+      );
     }
 
     // 7. Verificar obligatoriedad de preguntas activas.
@@ -286,8 +284,7 @@ export class EvaluationsService {
       (q) => !answeredIds.has(q.id),
     );
     if (unansweredRequired.length > 0) {
-      throw new BadRequestException({
-        message: 'Required questions without answers',
+      return throwBadRequest('Required questions without answers', {
         unansweredRequired: unansweredRequired.map((q) => q.id),
       });
     }
@@ -314,7 +311,10 @@ export class EvaluationsService {
       }
 
       // Sumar `Answer.value` por dimensión
-      const scoreByDimension = new Map<string, { dim: Dimension; score: number }>();
+      const scoreByDimension = new Map<
+        string,
+        { dim: Dimension; score: number }
+      >();
       for (const { question, answer } of resolved) {
         const dim = question.dimension;
         if (!dim) continue; // No debería ocurrir si el schema es consistente.
@@ -355,7 +355,7 @@ export class EvaluationsService {
       .getRepository(Evaluation)
       .findOne({ where: { id } });
     if (!evaluation) {
-      throw new NotFoundException(`Evaluation ${id} not found`);
+      return throwNotFound(`Evaluation ${id} not found`);
     }
 
     // Importante: usamos `.withDeleted()` para incluir dimensiones que fueron

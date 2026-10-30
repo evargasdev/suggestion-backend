@@ -7,19 +7,19 @@ export class CreateQuestionAnswerDto {
     description: 'Evaluación a la que pertenece la respuesta',
   })
   @IsUUID('4')
-  evaluationId!: string;
+  evaluationId: string;
 
   @ApiProperty({
     format: 'uuid',
     description: 'Pregunta a la que pertenece la respuesta',
   })
   @IsUUID('4')
-  questionId!: string;
+  questionId: string;
 
   @ApiProperty({
     format: 'uuid',
     description: 'Respuesta que pertenece a la pregunta',
   })
   @IsUUID('4')
-  answerId!: string;
+  answerId: string;
 }

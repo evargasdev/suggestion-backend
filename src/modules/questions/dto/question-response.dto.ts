@@ -36,6 +36,7 @@ export class QuestionResponseDto {
     const dto = new QuestionResponseDto();
     dto.id = entity.id;
     dto.label = entity.label;
+    dto.helperText = entity.helperText;
     dto.sortOrder = entity.sortOrder;
     dto.isRequired = entity.isRequired;
     dto.isActive = entity.isActive;

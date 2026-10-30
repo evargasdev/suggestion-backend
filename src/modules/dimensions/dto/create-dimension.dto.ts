@@ -28,7 +28,7 @@ export class CreateDimensionDto {
   @ApiProperty({ description: 'Orden de presentación', example: 0, default: 0 })
   @ValidateIf((_, value) => value !== undefined)
   @IsInt()
-  @Min(0)
+  @Min(  0)
   @Max(9_999)
   sortOrder?: number;
 

@@ -10,6 +10,7 @@ import { DimensionsModule } from './modules/dimensions/dimensions.module';
 import { EvaluationsModule } from './modules/evaluations/evaluations.module';
 import { QuestionsModule } from './modules/questions/questions.module';
 import { QuestionAnswer } from './modules/question-answers/entities/question-answer.entity';
+import { QuestionAnswerModule } from './modules/question-answers/question-answers.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { QuestionAnswer } from './modules/question-answers/entities/question-ans
     DatasourceModule,
     EvaluationsModule,
     QuestionsModule,
+    QuestionAnswerModule
   ],
   controllers: [],
   // providers: [
