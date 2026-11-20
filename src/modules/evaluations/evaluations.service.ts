@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { Brackets, DataSource, EntityManager } from 'typeorm';
+import ExcelJS from 'exceljs';
 
 import { Answer } from '../answers/entities/answer.entity';
 import { Dimension } from '../dimensions/entities/dimension.entity';
@@ -12,15 +13,64 @@ import { QuestionAnswer } from '../question-answers/entities/question-answer.ent
 import { SurveyResponseDto } from './dto/survey-response.dto';
 import { SubmitEvaluationDto } from './dto/submit-evaluation.dto';
 import { EvaluationResultsResponseDto } from './dto/evaluation-results-response.dto';
+import { DashboardStatDto } from './dto/dashboard-stat.dto';
 import { throwBadRequest, throwNotFound } from '../../common/throw-error';
+import {
+  calculateDimensionResults,
+  validateEvaluationAnswers,
+} from './survey-scoring';
 
-interface ResolvedResponse {
-  question: Question;
-  answer: Answer;
+// Public dashboard privacy threshold; tune here if the disclosure policy changes.
+const MINIMUM_PUBLIC_GROUP_SIZE = 5;
+const DEFAULT_SURVEY_CACHE_TTL_MS = 60_000;
+const configuredSurveyCacheTtl = process.env.ACTIVE_SURVEY_CACHE_TTL_MS;
+const ACTIVE_SURVEY_CACHE_TTL_MS =
+  configuredSurveyCacheTtl === undefined
+    ? DEFAULT_SURVEY_CACHE_TTL_MS
+    : Number(configuredSurveyCacheTtl);
+
+if (
+  !Number.isFinite(ACTIVE_SURVEY_CACHE_TTL_MS) ||
+  ACTIVE_SURVEY_CACHE_TTL_MS < 0
+) {
+  throw new Error(
+    'ACTIVE_SURVEY_CACHE_TTL_MS must be a non-negative number of milliseconds',
+  );
 }
+
+interface DashboardViewRow {
+  sector: string;
+  position: string;
+  dimension_id: string;
+  dimension_label: string;
+  promedio_puntaje: string | number;
+  total_evaluaciones: string | number;
+}
+
+interface ActiveSurveyRow {
+  dimension_id: string;
+  dimension_label: string;
+  dimension_sort_order: number;
+  question_id: string | null;
+  question_label: string | null;
+  question_helper_text: string | null;
+  question_sort_order: number | null;
+  question_is_required: boolean | null;
+  answer_id: string | null;
+  answer_label: string | null;
+  answer_sort_order: number | null;
+  answer_is_not_applicable: boolean | null;
+}
+
+const CARE_DIMENSION_LABEL = 'Cuidados y corresponsabilidad';
 
 @Injectable()
 export class EvaluationsService {
+  private surveyCache?: SurveyResponseDto;
+  private surveyCacheExpiresAt = 0;
+  private surveyCachePromise?: Promise<SurveyResponseDto>;
+  private surveyCacheVersion = 0;
+
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   /**
@@ -29,80 +79,136 @@ export class EvaluationsService {
    * NO expone `value` (el puntaje) de las respuestas.
    */
   async getActiveSurvey(): Promise<SurveyResponseDto> {
-    const dimensions = await this.dataSource.getRepository(Dimension).find({
-      where: { isActive: true },
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
-    });
-
-    if (dimensions.length === 0) {
-      return { dimensions: [] };
+    if (ACTIVE_SURVEY_CACHE_TTL_MS === 0) {
+      return this.loadActiveSurvey();
     }
 
-    const questions = await this.dataSource.getRepository(Question).find({
-      where: { isActive: true, dimension: In(dimensions.map((d) => d.id)) },
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
-      relations: { dimension: true, answerProfile: true },
-    });
-
-    const questionIds = questions.map((q) => q.id);
-    // Importante: necesitamos cargar la relación `answerProfile` para poder
-    // agrupar las opciones por perfil y devolverlas en cada pregunta.
-    // Sin `relations`, `a.answerProfile` sería `undefined` y la agrupación
-    // quedaría vacía (bug detectado en QA: las opciones no aparecían).
-    const answers = questionIds.length
-      ? await this.dataSource.getRepository(Answer).find({
-          where: {
-            isActive: true,
-            answerProfile: In(
-              questions
-                .map((q) => q.answerProfile?.id)
-                .filter(Boolean) as string[],
-            ),
-          },
-          relations: { answerProfile: true },
-          order: { sortOrder: 'ASC', createdAt: 'ASC' },
-        })
-      : [];
-
-    const answersByProfile = new Map<string, Answer[]>();
-    for (const a of answers) {
-      const pid = a.answerProfile?.id;
-      if (!pid) continue;
-      const list = answersByProfile.get(pid) ?? [];
-      list.push(a);
-      answersByProfile.set(pid, list);
+    if (this.surveyCache && Date.now() < this.surveyCacheExpiresAt) {
+      return structuredClone(this.surveyCache);
+    }
+    if (this.surveyCachePromise) {
+      return structuredClone(await this.surveyCachePromise);
     }
 
-    const questionsByDimension = new Map<string, Question[]>();
-    for (const q of questions) {
-      const did = q.dimension?.id;
-      if (!did) continue;
-      const list = questionsByDimension.get(did) ?? [];
-      list.push(q);
-      questionsByDimension.set(did, list);
+    const cacheVersion = this.surveyCacheVersion;
+    const loadPromise = this.loadActiveSurvey()
+      .then((survey) => {
+        if (cacheVersion === this.surveyCacheVersion) {
+          this.surveyCache = survey;
+          this.surveyCacheExpiresAt = Date.now() + ACTIVE_SURVEY_CACHE_TTL_MS;
+        }
+        return survey;
+      })
+      .finally(() => {
+        if (this.surveyCachePromise === loadPromise) {
+          this.surveyCachePromise = undefined;
+        }
+      });
+    this.surveyCachePromise = loadPromise;
+    return structuredClone(await loadPromise);
+  }
+
+  invalidateSurveyCache(): void {
+    this.surveyCacheVersion += 1;
+    this.surveyCache = undefined;
+    this.surveyCacheExpiresAt = 0;
+    this.surveyCachePromise = undefined;
+  }
+
+  private async loadActiveSurvey(): Promise<SurveyResponseDto> {
+    const rows: ActiveSurveyRow[] = await this.dataSource
+      .getRepository(Dimension)
+      .createQueryBuilder('dimension')
+      .leftJoin(
+        'dimension.questions',
+        'question',
+        'question.isActive = :questionActive AND question.deletedAt IS NULL',
+        { questionActive: true },
+      )
+      .leftJoin('question.answerProfile', 'answerProfile')
+      .leftJoin(
+        'answerProfile.answers',
+        'answer',
+        'answer.isActive = :answerActive AND answer.deletedAt IS NULL',
+        { answerActive: true },
+      )
+      .select('dimension.id', 'dimension_id')
+      .addSelect('dimension.label', 'dimension_label')
+      .addSelect('dimension.sortOrder', 'dimension_sort_order')
+      .addSelect('question.id', 'question_id')
+      .addSelect('question.label', 'question_label')
+      .addSelect('question.helperText', 'question_helper_text')
+      .addSelect('question.sortOrder', 'question_sort_order')
+      .addSelect('question.isRequired', 'question_is_required')
+      .addSelect('answer.id', 'answer_id')
+      .addSelect('answer.label', 'answer_label')
+      .addSelect('answer.sortOrder', 'answer_sort_order')
+      .addSelect('answer.isNotApplicable', 'answer_is_not_applicable')
+      .where('dimension.isActive = :dimensionActive', {
+        dimensionActive: true,
+      })
+      .andWhere('dimension.deletedAt IS NULL')
+      .orderBy('dimension.sortOrder', 'ASC')
+      .addOrderBy('dimension.createdAt', 'ASC')
+      .addOrderBy('question.sortOrder', 'ASC')
+      .addOrderBy('question.createdAt', 'ASC')
+      .addOrderBy('answer.sortOrder', 'ASC')
+      .addOrderBy('answer.createdAt', 'ASC')
+      .getRawMany<ActiveSurveyRow>();
+
+    const dimensionsById = new Map<
+      string,
+      SurveyResponseDto['dimensions'][number]
+    >();
+    const questionsByDimension = new Map<
+      string,
+      Map<string, SurveyResponseDto['dimensions'][number]['questions'][number]>
+    >();
+
+    for (const row of rows) {
+      let dimension = dimensionsById.get(row.dimension_id);
+      if (!dimension) {
+        dimension = {
+          id: row.dimension_id,
+          label: row.dimension_label,
+          sortOrder: row.dimension_sort_order,
+          questions: [],
+        };
+        dimensionsById.set(row.dimension_id, dimension);
+        questionsByDimension.set(row.dimension_id, new Map());
+      }
+
+      if (!row.question_id) continue;
+      const questions = questionsByDimension.get(row.dimension_id)!;
+      let question = questions.get(row.question_id);
+      if (!question) {
+        question = {
+          id: row.question_id,
+          label: row.question_label ?? '',
+          helperText: row.question_helper_text ?? '',
+          sortOrder: row.question_sort_order ?? 0,
+          isRequired: row.question_is_required ?? false,
+          answers: [],
+        };
+        questions.set(row.question_id, question);
+        dimension.questions.push(question);
+      }
+
+      if (
+        row.answer_id &&
+        (!row.answer_is_not_applicable ||
+          dimension.label === CARE_DIMENSION_LABEL)
+      ) {
+        question.answers.push({
+          id: row.answer_id,
+          label: row.answer_label ?? '',
+          sortOrder: row.answer_sort_order ?? 0,
+          isNotApplicable: row.answer_is_not_applicable ?? false,
+        });
+      }
     }
 
-    return {
-      dimensions: dimensions.map((d) => ({
-        id: d.id,
-        label: d.label,
-        sortOrder: d.sortOrder,
-        questions: (questionsByDimension.get(d.id) ?? []).map((q) => ({
-          id: q.id,
-          label: q.label,
-          helperText: q.helperText,
-          sortOrder: q.sortOrder,
-          isRequired: q.isRequired,
-          answers: (answersByProfile.get(q.answerProfile?.id ?? '') ?? []).map(
-            (a) => ({
-              id: a.id,
-              label: a.label,
-              sortOrder: a.sortOrder,
-            }),
-          ),
-        })),
-      })),
-    };
+    return { dimensions: Array.from(dimensionsById.values()) };
   }
 
   /**
@@ -126,229 +232,147 @@ export class EvaluationsService {
    *  - 1 `EvaluationResult` por dimensión con al menos una respuesta.
    *
    * No se persiste ningún dato identificador del participante (sin auth, sin
-   * IP, sin user-agent). El campo `Evaluation.workplace` permanece sin uso.
+   * IP, sin user-agent).
    */
   async submitEvaluation(dto: SubmitEvaluationDto): Promise<Evaluation> {
-    // 1. Duplicados
-    const seen = new Set<string>();
-    for (const a of dto.answers) {
-      if (seen.has(a.questionId)) {
-        return throwBadRequest(
-          `Question ${a.questionId} appears more than once in the answers array`,
-        );
-      }
-      seen.add(a.questionId);
-    }
+    const questionIds = Array.from(
+      new Set(dto.answers.map((answer) => answer.questionId)),
+    );
+    const answerIds = Array.from(
+      new Set(dto.answers.map((answer) => answer.answerId)),
+    );
 
-    const questionIds = Array.from(seen);
-    const answerIds = dto.answers.map((a) => a.answerId);
-
-    // 2-4. Resolver preguntas y respuestas en batch
-    const questions = await this.dataSource.getRepository(Question).find({
-      where: { id: In(questionIds) },
-      relations: { answerProfile: true, dimension: true },
-    });
-    const answers = await this.dataSource.getRepository(Answer).find({
-      where: { id: In(answerIds) },
-      relations: { answerProfile: true },
-    });
-
-    const questionMap = new Map(questions.map((q) => [q.id, q]));
-    const answerMap = new Map(answers.map((a) => [a.id, a]));
-
-    const resolved: ResolvedResponse[] = [];
-    const missingQuestions: string[] = [];
-    const inactiveQuestions: string[] = [];
-    const missingAnswers: string[] = [];
-    const inactiveAnswers: string[] = [];
-    const profileMismatch: string[] = [];
-
-    for (const input of dto.answers) {
-      const question = questionMap.get(input.questionId);
-      if (!question) {
-        missingQuestions.push(input.questionId);
-        continue;
-      }
-      if (!question.isActive) {
-        inactiveQuestions.push(input.questionId);
-        continue;
-      }
-      const answer = answerMap.get(input.answerId);
-      if (!answer) {
-        missingAnswers.push(input.answerId);
-        continue;
-      }
-      if (!answer.isActive) {
-        inactiveAnswers.push(input.answerId);
-        continue;
-      }
-      if (
-        !question.answerProfile ||
-        !answer.answerProfile ||
-        question.answerProfile.id !== answer.answerProfile.id
-      ) {
-        profileMismatch.push(input.questionId);
-        continue;
-      }
-      resolved.push({ question, answer });
-    }
-
-    if (
-      missingQuestions.length ||
-      inactiveQuestions.length ||
-      missingAnswers.length ||
-      inactiveAnswers.length ||
-      profileMismatch.length
-    ) {
-      return throwBadRequest('Invalid evaluation answers', {
-        missingQuestions,
-        inactiveQuestions,
-        missingAnswers,
-        inactiveAnswers,
-        profileMismatch,
-      });
-    }
-
-    // 5. Conjunto canónico de IDs de dimensiones visibles en la encuesta
-    //    pública (`getActiveSurvey`): activas Y no soft-deleted.
-    //
-    //    Bloqueador crítico detectado en QA real (TypeORM): un LEFT JOIN
-    //    con la tabla `dimensions` añade `AND dimension.delete_at IS NULL`,
-    //    dejando `question.dimension = null` para filas soft-deleted. El
-    //    código anterior interpretaba `dim == null` como "pregunta huérfana
-    //    → exigir respuesta", forzando al participante a contestar una
-    //    pregunta cuya dimensión ya no existe en la encuesta pública
-    //    visible.
-    //
-    //    Solución robusta: pedir a TypeORM los IDs de las dimensiones
-    //    activas y NO soft-deleted (las mismas que expone la encuesta
-    //    pública en `getActiveSurvey`), y luego filtrar las preguntas
-    //    obligatorias con `dimension: In(activeDimensionIds)`. Esto
-    //    garantiza que el conjunto de preguntas obligatorias exigidas es
-    //    EXACTAMENTE el subconjunto de la encuesta visible. NO se acepta
-    //    pregunta de dimensión soft-deleted ni inactiva.
-    const activeDimensions = await this.dataSource
-      .getRepository(Dimension)
-      .find({
+    const [activeDimensions, questions, answers] = await Promise.all([
+      this.dataSource.getRepository(Dimension).find({
+        select: { id: true },
         where: { isActive: true },
-        // `find()` respeta soft-delete: las dimensiones con `delete_at`
-        // poblado quedan excluidas por defecto. Si en el futuro se hace
-        // explícito con `.withDeleted(true)` se reconsidera este punto.
-      });
-    const activeDimensionIds = activeDimensions.map((d) => d.id);
-    const activeDimensionIdSet = new Set(activeDimensionIds);
+      }),
+      this.loadQuestionsForEvaluation(questionIds),
+      this.loadAnswersForEvaluation(answerIds),
+    ]);
 
-    // 6. Bloqueador detectado por QA: el flujo anterior validaba únicamente
-    //    que la pregunta existiera y estuviera `isActive=true`. Eso permitía
-    //    contestar preguntas activas de dimensiones INACTIVAS (se calculaba
-    //    `EvaluationResult` aunque `GET /evaluations/survey` no las
-    //    mostraba) o de dimensiones SOFT-DELETED (se persistía
-    //    `QuestionAnswer` pero no se podía generar `EvaluationResult`).
-    //    Solución: rechazar el envío entero con 400 si ALGUNA pregunta
-    //    resuelta no pertenece al conjunto de IDs de dimensiones activas
-    //    no borradas. Esta validación se ejecuta ANTES de abrir la
-    //    transacción, garantizando que no se persiste nada.
-    const questionsWithInvalidDimension: string[] = [];
-    for (const { question } of resolved) {
-      const dimId = question.dimension?.id;
-      if (!dimId || !activeDimensionIdSet.has(dimId)) {
-        questionsWithInvalidDimension.push(question.id);
-      }
-    }
-    if (questionsWithInvalidDimension.length > 0) {
-      throwBadRequest(
-        'Answers for questions belonging to inactive or deleted dimensions are not allowed',
-        {
-          questionsWithInvalidDimension,
-        },
+    const activeDimensionIds = new Set(
+      activeDimensions.map((dimension) => dimension.id),
+    );
+    const validation = validateEvaluationAnswers(
+      dto.answers,
+      questions,
+      answers,
+      activeDimensionIds,
+    );
+    if (!validation.valid) {
+      return throwBadRequest(
+        validation.error.message,
+        validation.error.details,
       );
     }
 
-    // 7. Verificar obligatoriedad de preguntas activas.
-    const requiredQuestions =
-      activeDimensionIds.length === 0
-        ? []
-        : await this.dataSource.getRepository(Question).find({
-            where: {
-              isRequired: true,
-              isActive: true,
-              dimension: In(activeDimensionIds),
-            },
-            // NO se cargan relaciones: la decisión de obligatoriedad se
-            // toma exclusivamente por pertenencia al conjunto de IDs
-            // activos. Esto evita el LEFT JOIN que filtraba por
-            // `delete_at IS NULL` y provocaba el bug.
-          });
-    const answeredIds = new Set(resolved.map((r) => r.question.id));
-    const unansweredRequired = requiredQuestions.filter(
-      (q) => !answeredIds.has(q.id),
+    const { resolved, requiredQuestions } = validation;
+    const dimensionResults = calculateDimensionResults(
+      resolved,
+      requiredQuestions,
     );
-    if (unansweredRequired.length > 0) {
-      return throwBadRequest('Required questions without answers', {
-        unansweredRequired: unansweredRequired.map((q) => q.id),
-      });
-    }
 
     // Persistencia transaccional
     return this.dataSource.transaction(async (manager: EntityManager) => {
       const evalRepo = manager.getRepository(Evaluation);
       const qaRepo = manager.getRepository(QuestionAnswer);
-      const resultRepo = manager.getRepository(EvaluationResult);
 
-      const evaluation = evalRepo.create({});
-      // No tocamos `workplace` (campo legacy no usado por el flujo anónimo).
+      const evaluation = evalRepo.create({
+        ageRange: dto.demographics.ageRange,
+        genderIdentity: dto.demographics.genderIdentity,
+        vulnerableGroups: dto.demographics.vulnerableGroups,
+        origin: dto.demographics.origin,
+        hasCareResponsibilities: dto.demographics.hasCareResponsibilities,
+        careResponsibilitiesDetails:
+          dto.demographics.careResponsibilitiesDetails,
+        activityType: dto.demographics.activityType,
+        sector: dto.demographics.sector,
+        position: dto.demographics.position,
+      });
       await evalRepo.save(evaluation);
 
-      const qaEntities = resolved.map(({ question, answer }) =>
-        qaRepo.create({
-          evaluation,
-          question,
-          answer,
-        }),
-      );
-      if (qaEntities.length > 0) {
-        await qaRepo.save(qaEntities);
-      }
-
-      // Sumar `Answer.value` por dimensión
-      const scoreByDimension = new Map<
-        string,
-        { dim: Dimension; score: number }
-      >();
-      for (const { question, answer } of resolved) {
-        const dim = question.dimension;
-        if (!dim) continue; // No debería ocurrir si el schema es consistente.
-        const current = scoreByDimension.get(dim.id) ?? { dim, score: 0 };
-        current.score += answer.value;
-        scoreByDimension.set(dim.id, current);
-      }
-
-      const resultEntities: EvaluationResult[] = [];
-      for (const { dim, score } of scoreByDimension.values()) {
-        resultEntities.push(
-          resultRepo.create({
-            evaluation,
-            dimension: dim,
-            score,
-            // Clasificación intencionalmente null hasta que el dominio defina rangos.
-            classification: null,
-          }),
+      if (resolved.length > 0) {
+        await qaRepo.insert(
+          resolved.map(({ question, answer }) => ({
+            evaluation: { id: evaluation.id },
+            question: { id: question.id },
+            answer: { id: answer.id },
+          })),
         );
       }
-      if (resultEntities.length > 0) {
-        await resultRepo.save(resultEntities);
+
+      if (dimensionResults.length > 0) {
+        await manager.getRepository(EvaluationResult).insert(
+          dimensionResults.map((result) => ({
+            evaluation: { id: evaluation.id },
+            dimension: { id: result.dimensionId },
+            score: result.score,
+            classification: result.classification,
+          })),
+        );
       }
 
       return evaluation;
     });
   }
 
+  private loadQuestionsForEvaluation(
+    submittedQuestionIds: string[],
+  ): Promise<Question[]> {
+    const query = this.dataSource
+      .getRepository(Question)
+      .createQueryBuilder('question')
+      .leftJoinAndSelect('question.dimension', 'dimension')
+      .leftJoinAndSelect('question.answerProfile', 'answerProfile')
+      .select([
+        'question.id',
+        'question.isActive',
+        'question.isRequired',
+        'dimension.id',
+        'dimension.label',
+        'answerProfile.id',
+      ])
+      .where(
+        new Brackets((qb) => {
+          qb.where(
+            'question.isActive = :active AND dimension.isActive = :active',
+            { active: true },
+          );
+          if (submittedQuestionIds.length > 0) {
+            qb.orWhere('question.id IN (:...submittedQuestionIds)', {
+              submittedQuestionIds,
+            });
+          }
+        }),
+      );
+
+    return query.getMany();
+  }
+
+  private loadAnswersForEvaluation(answerIds: string[]): Promise<Answer[]> {
+    if (answerIds.length === 0) return Promise.resolve([]);
+
+    return this.dataSource
+      .getRepository(Answer)
+      .createQueryBuilder('answer')
+      .leftJoinAndSelect('answer.answerProfile', 'answerProfile')
+      .select([
+        'answer.id',
+        'answer.isActive',
+        'answer.value',
+        'answer.isNotApplicable',
+        'answerProfile.id',
+      ])
+      .where('answer.id IN (:...answerIds)', { answerIds })
+      .getMany();
+  }
+
   /**
-   * Devuelve el puntaje bruto por dimensión de una evaluación.
+   * Devuelve el puntaje normalizado y la clasificación por dimensión.
    *
-   * NO inventa clasificaciones: si `EvaluationResult.classification` es null,
-   * así se devuelve. Cada dimensión con respuesta guardada tiene un único
-   * resultado.
+   * Cada dimensión con respuestas puntuables tiene un resultado. La
+   * clasificación usa las bandas definidas en el instrumento.
    */
   async getResults(id: string): Promise<EvaluationResultsResponseDto> {
     const evaluation = await this.dataSource
@@ -399,5 +423,52 @@ export class EvaluationsService {
         classification: r.classification ?? null,
       })),
     };
+  }
+
+  async getDashboardStats(): Promise<DashboardStatDto[]> {
+    const rows: DashboardViewRow[] = await this.dataSource.query(
+      `SELECT
+         "sector",
+         "position",
+         "dimension_id",
+         "dimension_label",
+         "promedio_puntaje",
+         "total_evaluaciones"
+       FROM "vw_dashboard_stats"
+       ORDER BY "sector", "position", "dimension_label"`,
+    );
+
+    return rows.map((row) => ({
+      sector: row.sector,
+      position: row.position,
+      dimensionId: row.dimension_id,
+      dimensionLabel: row.dimension_label,
+      averageScore: Number(row.promedio_puntaje),
+      evaluationCount: Number(row.total_evaluaciones),
+    }));
+  }
+
+  async createDashboardWorkbook(): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Suggestion API';
+    const sheet = workbook.addWorksheet('Resultados agregados');
+    sheet.columns = [
+      { header: 'Sector', key: 'sector', width: 24 },
+      { header: 'Cargo', key: 'position', width: 32 },
+      { header: 'Dimensión', key: 'dimensionLabel', width: 32 },
+      {
+        header: 'Promedio de puntaje',
+        key: 'averageScore',
+        width: 22,
+        style: { numFmt: '0.00' },
+      },
+      { header: 'Evaluaciones', key: 'evaluationCount', width: 18 },
+    ];
+    sheet.addRows(await this.getDashboardStats());
+    sheet.getRow(1).font = { bold: true };
+    sheet.autoFilter = 'A1:E1';
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
   }
 }

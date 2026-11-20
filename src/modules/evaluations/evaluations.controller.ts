@@ -7,6 +7,8 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -15,12 +17,17 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiTags,
+  ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 import { Evaluation } from './entities/evaluation.entity';
 import { EvaluationCreatedResponseDto } from './dto/evaluation-created-response.dto';
 import { EvaluationResultsResponseDto } from './dto/evaluation-results-response.dto';
+import { DashboardStatDto } from './dto/dashboard-stat.dto';
 import { SubmitEvaluationDto } from './dto/submit-evaluation.dto';
 import { SurveyResponseDto } from './dto/survey-response.dto';
 import { EvaluationsService } from './evaluations.service';
@@ -45,20 +52,59 @@ export class EvaluationsController {
     return this.service.getActiveSurvey();
   }
 
+  @Get('dashboard')
+  @ApiOperation({
+    summary: 'Obtener estadísticas agregadas del panel público',
+    description:
+      'Devuelve únicamente grupos con al menos cinco evaluaciones; no expone registros individuales.',
+  })
+  @ApiOkResponse({ type: DashboardStatDto, isArray: true })
+  getDashboardStats(): Promise<DashboardStatDto[]> {
+    return this.service.getDashboardStats();
+  }
+
+  @Get('dashboard/report.xlsx')
+  @ApiOperation({
+    summary: 'Descargar el reporte agregado del panel en Excel',
+    description:
+      'El archivo contiene los mismos agregados protegidos por tamaño mínimo de grupo que el panel.',
+  })
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  )
+  @ApiOkResponse({
+    schema: { type: 'string', format: 'binary' },
+  })
+  async downloadDashboardReport(@Res() response: Response): Promise<void> {
+    const workbook = await this.service.createDashboardWorkbook();
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      'attachment; filename="resultados-turismo-mujeres.xlsx"',
+    );
+    response.setHeader('Cache-Control', 'no-store');
+    response.send(workbook);
+  }
+
   /**
-   * Envío anónimo de una evaluación. Valida IDs, ausencia de duplicados,
-   * preguntas activas, opciones existentes y activas, asociación de
-   * answerProfile y obligatoriedad. Devuelve únicamente id y fecha.
+   * Envío anónimo de una evaluación. Valida los datos demográficos, que la
+   * identidad corresponda a una mujer, las respuestas y la obligatoriedad.
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Enviar evaluación anónima',
     description:
-      'Persiste la evaluación, las respuestas y los puntajes por dimensión en una sola transacción. No captura IP, user-agent ni datos personales.',
+      'Requiere datos demográficos y una identidad de mujer, y persiste la evaluación, respuestas y puntajes por dimensión en una sola transacción. No captura IP ni user-agent.',
   })
   @ApiCreatedResponse({ type: EvaluationCreatedResponseDto })
   @ApiBadRequestResponse({ description: 'Datos inválidos' })
+  @ApiTooManyRequestsResponse({ description: 'Límite de solicitudes excedido' })
   async submit(
     @Body() dto: SubmitEvaluationDto,
   ): Promise<EvaluationCreatedResponseDto> {
@@ -67,8 +113,7 @@ export class EvaluationsController {
   }
 
   /**
-   * Devuelve el puntaje bruto por dimensión para una evaluación.
-   * La clasificación se devuelve solo si está definida (hoy siempre null).
+   * Devuelve el puntaje normalizado y la clasificación por dimensión.
    */
   @Get(':id/results')
   @ApiOperation({ summary: 'Obtener puntajes por dimensión de una evaluación' })

@@ -10,6 +10,12 @@ export class SurveyAnswerOptionDto {
 
   @ApiProperty()
   sortOrder!: number;
+
+  @ApiProperty({
+    description:
+      'Indica que esta opción no se incluye en el cálculo del puntaje.',
+  })
+  isNotApplicable!: boolean;
 }
 
 /** Pregunta del catálogo público (NO incluye `value` de las respuestas). */
@@ -19,6 +25,9 @@ export class SurveyQuestionDto {
 
   @ApiProperty()
   label!: string;
+
+  @ApiProperty()
+  helperText!: string;
 
   @ApiProperty()
   sortOrder!: number;

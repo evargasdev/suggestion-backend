@@ -8,14 +8,17 @@ export class EvaluationDimensionResultDto {
   @ApiProperty()
   dimensionLabel!: string;
 
-  @ApiProperty({ description: 'Suma bruta de los `value` de las respuestas en la dimensión' })
+  @ApiProperty({
+    description:
+      'Puntaje de la dimensión; se normaliza al total de reactivos cuando hay respuestas «No aplica».',
+  })
   score!: number;
 
   @ApiProperty({
     type: String,
     nullable: true,
     description:
-      'Clasificación (bajo/medio/alto, etc.). Es `null` mientras el dominio no defina los rangos.',
+      'Clasificación según las bandas definidas para la dimensión. Es `null` si no hubo respuestas puntuables.',
   })
   classification!: string | null;
 }

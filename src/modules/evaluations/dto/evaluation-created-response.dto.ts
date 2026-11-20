@@ -3,7 +3,7 @@ import { Evaluation } from '../entities/evaluation.entity';
 
 /**
  * Respuesta pública al crear una evaluación. Solo expone el id y la fecha;
- * no se devuelven datos privados del participante (porque NO se capturan).
+ * no se devuelven los datos demográficos guardados en la evaluación.
  */
 export class EvaluationCreatedResponseDto {
   @ApiProperty({ format: 'uuid' })
