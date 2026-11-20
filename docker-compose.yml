@@ -2,37 +2,62 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.pro
+      target: production
+    container_name: suggestion-api
+    restart: unless-stopped
     ports:
-      - '4000:3000'
-    volumes:
-      - .:/usr/app
-      - /usr/app/node_modules
+      - '${API_PORT:-4000}:3000'
     environment:
-      NODE_ENV: development
-      CI: true
-      CHOKIDAR_USEPOLLING: 'true'
-      WATCHPACK_POLLING: 'true'
-      DATABASE_URL: ${DATABASE_URL:-}
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL es requerida en producción}
+      # Si usas variables separadas en lugar de DATABASE_URL, descomenta estas:
       # PG_HOST: postgres_db
-      # PG_PORT: ${PG_PORT:-5432}
-      # PG_USERNAME: ${PG_USERNAME:-suggestion}
-      # PG_PASSWORD: ${PG_PASSWORD:-suggestion}
+      # PG_PORT: 5432
+      # PG_USERNAME: ${PG_USERNAME:?PG_USERNAME es requerido}
+      # PG_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD es requerido}
       # PG_DATABASE: ${PG_DATABASE:-suggestion}
+    # Descomenta si levantas PostgreSQL dentro del mismo Compose en lugar de usar una BD administrada (RDS/Supabase/Neon):
     # depends_on:
-    #   - postgres_db
-    command: pnpm run start:dev
+    #   postgres_db:
+    #     condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # Opcional: Descomentar solo si alojas PostgreSQL en el mismo servidor Docker
   # postgres_db:
   #   image: postgres:18.4-alpine3.24
+  #   container_name: suggestion-db
+  #   restart: unless-stopped
   #   environment:
   #     POSTGRES_USER: ${PG_USERNAME:-suggestion}
-  #     POSTGRES_PASSWORD: ${PG_PASSWORD:-suggestion}
+  #     POSTGRES_PASSWORD: ${PG_PASSWORD:?PG_PASSWORD es requerido}
   #     POSTGRES_DB: ${PG_DATABASE:-suggestion}
-  #   ports:
-  #     - '5432:5432'
+  #   # En producción NO expongas el puerto 5432 al exterior salvo que sea estrictamente necesario
+  #   # ports:
+  #   #   - '127.0.0.1:5432:5432'
   #   volumes:
-  #     - suggestion-db:/var/lib/postgres/18/docker
+  #     - suggestion-db:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${PG_USERNAME:-suggestion} -d ${PG_DATABASE:-suggestion}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
 
 # volumes:
 #   suggestion-db:
