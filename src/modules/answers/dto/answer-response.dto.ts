@@ -17,6 +17,9 @@ export class AnswerResponseDto {
   @ApiProperty()
   isActive!: boolean;
 
+  @ApiProperty()
+  isNotApplicable!: boolean;
+
   @ApiProperty({ format: 'uuid', description: 'Perfil al que pertenece' })
   answerProfileId!: string;
 
@@ -33,6 +36,7 @@ export class AnswerResponseDto {
     dto.value = entity.value;
     dto.sortOrder = entity.sortOrder;
     dto.isActive = entity.isActive;
+    dto.isNotApplicable = entity.isNotApplicable;
     dto.answerProfileId = entity.answerProfile?.id ?? '';
     dto.createdAt = entity.createdAt;
     dto.updatedAt = entity.updatedAt;

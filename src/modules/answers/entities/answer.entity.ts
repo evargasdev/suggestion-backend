@@ -13,9 +13,12 @@ export class Answer extends Base {
 
   @Column({ name: 'sort_order', type: 'int', nullable: false, default: 0 })
   sortOrder: number;
-  
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
+
+  @Column({ name: 'is_not_applicable', type: 'boolean', default: false })
+  isNotApplicable: boolean;
 
   @ManyToOne(() => AnswerProfile, (answerProfile) => answerProfile.answers)
   @JoinColumn({ name: 'answer_profile_id' })

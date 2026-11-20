@@ -39,31 +39,33 @@ export class AnswerProfilesService {
   }
 
   async findOne(id: string): Promise<AnswerProfile> {
-    const answerProfile = await this.repository.findOne({ where: { id } });
-    if (!answerProfile) {
+    const entity = await this.repository.findOne({ where: { id } });
+    if (!entity) {
       return throwNotFound(`AnswerProfile ${id} not found`);
     }
-    return answerProfile;
+    return entity;
   }
 
   async update(
     id: string,
     dto: UpdateAnswerProfileDto,
   ): Promise<AnswerProfile> {
-    const answerProfile = await this.repository.preload({
+    const entity = await this.repository.preload({
       id,
       ...dto,
     });
 
-    if (!answerProfile) {
+    if (!entity) {
       return throwNotFound(`AnswerProfile ${id} not found`);
     }
 
-    return this.repository.save(answerProfile);
+    return this.repository.save(entity);
   }
 
   async remove(id: string): Promise<void> {
-    const answerProfile = await this.findOne(id);
-    await this.repository.softDelete(answerProfile.id);
+    const result = await this.repository.softDelete(id);
+    if (!result.affected) {
+      throwNotFound(`Answer ${id} not found`);
+    }
   }
 }

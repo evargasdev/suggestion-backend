@@ -9,9 +9,13 @@ import { QuestionsModule } from '../questions/questions.module';
 import { AnswerProfilesModule } from '../answer-profiles/answer-profiles.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Dimension]), QuestionsModule, AnswerProfilesModule],
+  imports: [
+    TypeOrmModule.forFeature([Dimension]),
+    QuestionsModule,
+    AnswerProfilesModule,
+  ],
   controllers: [DimensionsController],
-  providers: [DimensionsService ,QuestionsService],
+  providers: [DimensionsService, QuestionsService],
   exports: [DimensionsService, TypeOrmModule],
 })
 export class DimensionsModule {}

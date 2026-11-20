@@ -43,7 +43,10 @@ export class CreateAnswerDto {
   @IsBoolean()
   isActive?: boolean;
 
-  @ApiProperty({ format: 'uuid', description: 'Perfil al que pertenece la opción' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'Perfil al que pertenece la opción',
+  })
   @IsUUID('4')
   answerProfileId!: string;
 }

@@ -9,7 +9,6 @@ import { QuestionsService } from './questions.service';
 import { DimensionsService } from '../dimensions/dimensions.service';
 import { AnswerProfilesService } from '../answer-profiles/answer-profiles.service';
 import { AnswerProfilesModule } from '../answer-profiles/answer-profiles.module';
-import { DimensionsModule } from '../dimensions/dimensions.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Question, Dimension, AnswerProfile]), AnswerProfilesModule],

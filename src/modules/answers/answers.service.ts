@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-
 import { PaginationDto } from '../../common/shared/dtos/pagination.dto';
 import { PaginationResponseDto } from '../../common/shared/dtos/pagination-response.dto';
 import { AnswerProfilesService } from '../answer-profiles/answer-profiles.service';
@@ -23,8 +22,8 @@ export class AnswersService {
     const created = this.repository.create({
       label: dto.label,
       value: dto.value,
-      sortOrder: dto.sortOrder ?? 0,
-      isActive: dto.isActive ?? true,
+      sortOrder: dto.sortOrder,
+      isActive: dto.isActive,
       answerProfile: profile,
     });
     return this.repository.save(created);
@@ -60,18 +59,13 @@ export class AnswersService {
   }
 
   async update(id: string, dto: UpdateAnswerDto): Promise<Answer> {
-    const { answerProfileId, ...updates } = dto;
     const entity = await this.repository.preload({
       id,
-      ...updates,
+      ...dto,
     });
 
     if (!entity) {
       return throwNotFound(`Answer ${id} not found`);
-    }
-
-    if (answerProfileId) {
-      entity.answerProfile = await this.profileService.findOne(answerProfileId);
     }
 
     return this.repository.save(entity);
