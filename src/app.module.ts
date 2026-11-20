@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { databaseConfig } from './common/config/database';
 import { generalConfig } from './common/config/general';
 import { validationSchema } from './common/config/schema-validation';
@@ -9,7 +10,6 @@ import { AnswersModule } from './modules/answers/answers.module';
 import { DimensionsModule } from './modules/dimensions/dimensions.module';
 import { EvaluationsModule } from './modules/evaluations/evaluations.module';
 import { QuestionsModule } from './modules/questions/questions.module';
-import { QuestionAnswer } from './modules/question-answers/entities/question-answer.entity';
 import { QuestionAnswerModule } from './modules/question-answers/question-answers.module';
 
 @Module({
@@ -18,21 +18,15 @@ import { QuestionAnswerModule } from './modules/question-answers/question-answer
       load: [generalConfig, databaseConfig],
       validationSchema,
     }),
-    // Módulos funcionales (orden alfabético)
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }]),
     AnswerProfilesModule,
     AnswersModule,
     DimensionsModule,
     DatasourceModule,
     EvaluationsModule,
     QuestionsModule,
-    QuestionAnswerModule
+    QuestionAnswerModule,
   ],
   controllers: [],
-  // providers: [
-  //   {
-  //     provide: APP_GUARD,
-  //     useClass: JwtAuthGuard,
-  //   },
-  // ],
 })
 export class AppModule {}

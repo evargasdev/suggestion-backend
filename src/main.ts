@@ -16,28 +16,19 @@ async function bootstrap() {
     }),
   );
 
+
+  // Swagger
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('Suggestion API')
       .setDescription('Documentación de la API de Suggestion')
       .setVersion('1.0.0')
       .addServer('http://localhost:4000', 'Desarrollo local')
-      .addBearerAuth(
-        {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-          description: 'Token JWT de autenticación',
-        },
-        'bearer',
-      )
       .addTag('Answer Profiles', 'Gestión de perfiles de respuesta')
       .addTag('Answers', 'Gestión de respuestas')
       .addTag('Dimensions', 'Gestión de dimensiones')
       .addTag('Evaluations', 'Gestión de evaluaciones')
-      .addTag('Question Answers', 'Gestión de respuestas a preguntas')
       .addTag('Questions', 'Gestión de preguntas')
-      .addTag('Results')
       .build();
     const document = SwaggerModule.createDocument(app, config, {
       autoTagControllers: true,

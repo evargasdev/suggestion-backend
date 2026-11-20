@@ -15,11 +15,15 @@ export const databaseProvider = TypeOrmModule.forRootAsync({
     return {
       synchronize: false,
       type: 'postgres',
-      host: config.host,
-      port: config.port,
-      username: config.username,
-      password: config.password,
-      database: config.database,
+      ...(config.url
+        ? { url: config.url }
+        : {
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            database: config.database,
+          }),
       entities: [dirEntities],
     };
   },
